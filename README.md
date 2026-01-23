@@ -15,8 +15,14 @@ Convert and optimize BirdNET models for ONNX Runtime inference on various platfo
 ## Installation
 
 ```bash
-pip install onnx onnx-simplifier onnxslim numpy onnxruntime onnxconverter-common
-pip install tensorflow tf2onnx  # For TFLite conversion
+# Core dependencies
+pip install onnx onnxslim onnxscript numpy onnxruntime onnxconverter-common
+
+# For TFLite conversion
+pip install tensorflow tf2onnx
+
+# Optional: onnx-simplifier (requires cmake)
+# pip install onnx-simplifier
 ```
 
 ## Usage
@@ -57,8 +63,11 @@ The optimizer applies the following transformations:
 2. **ReverseSequence → Slice** - Replaces with negative-stride slice operation
 3. **GlobalAveragePool + Squeeze → ReduceMean** - Combines into single operation
 4. **Transpose fusion** - Merges consecutive transpose operations
-5. **Cast removal** - Removes redundant type casts
-6. **Graph optimization** - Uses onnx-simplifier and onnxslim for further optimization
+5. **Cast removal** - Removes all Cast nodes via onnxscript rewriter for proper type propagation
+6. **INT32 → INT64 conversion** - Converts integer initializers to INT64 for better compatibility
+7. **Graph optimization** - Uses onnxscript optimizer and onnxslim for further optimization
+8. **Split node fixing** - Removes zero-size outputs from Split nodes
+9. **Dead code elimination** - Removes orphaned nodes not contributing to output
 
 ## Supported Models
 
@@ -73,6 +82,7 @@ This tool supports conversion and optimization of:
 ### Raspberry Pi 5
 
 Use FP16 model for best performance:
+
 ```python
 import onnxruntime as ort
 session = ort.InferenceSession("BirdNET_fp16.onnx")
@@ -81,6 +91,7 @@ session = ort.InferenceSession("BirdNET_fp16.onnx")
 ### Raspberry Pi 3/4
 
 Use INT8-ARM model (FP16 not supported):
+
 ```python
 session = ort.InferenceSession("BirdNET_int8_arm.onnx")
 ```
@@ -88,6 +99,7 @@ session = ort.InferenceSession("BirdNET_int8_arm.onnx")
 ### Intel CPUs
 
 Use INT8 model for ~2x speedup with oneDNN:
+
 ```python
 session = ort.InferenceSession("BirdNET_int8.onnx")
 ```
@@ -95,6 +107,7 @@ session = ort.InferenceSession("BirdNET_int8.onnx")
 ### NVIDIA GPUs
 
 Use FP32 or FP16 with CUDA/TensorRT:
+
 ```python
 session = ort.InferenceSession(
     "BirdNET_fp16.onnx",
