@@ -613,18 +613,77 @@ def set_dynamic_batch(model: onnx.ModelProto) -> onnx.ModelProto:
 def convert_int32_to_int64(model: onnx.ModelProto) -> Tuple[onnx.ModelProto, int]:
     """Convert INT32 initializers to INT64 for better compatibility.
 
-    NOTE: This conversion is currently DISABLED because it requires proper
-    type inference to avoid creating type mismatches. The reference implementation
-    uses onnx_ir which handles type propagation properly.
-
-    When enabled, this would convert INT32 initializers used by shape-related
-    ops (Reshape, Slice, Gather, etc.) to INT64 for better runtime compatibility.
-
+    Uses onnx_ir for proper type propagation throughout the graph.
     Based on: https://huggingface.co/justinchuby/BirdNET-onnx/blob/main/scripts/optimize.py
+
+    CRITICAL: Runs RemoveCast rule BEFORE INT32->INT64 conversion to ensure
+    type propagation works correctly. Cast nodes force specific types, so
+    removing them first allows the optimizer to propagate INT64 types properly.
     """
-    # DISABLED: Causes type mismatches without proper type inference
-    # TODO: Re-enable when we have onnx_ir or implement proper type propagation
-    return model, 0
+    try:
+        import onnx_ir as ir
+        import onnxscript
+        from onnxscript import rewriter
+        from onnxscript.rewriter import pattern
+    except ImportError as e:
+        print(f"  onnx_ir or onnxscript not available ({e}), skipping INT32->INT64 conversion")
+        return model, 0
+
+    # Convert to IR representation
+    ir_model = ir.from_proto(model)
+
+    # Step 1: Remove Cast nodes FIRST (convert to Identity)
+    # This is critical - Cast nodes force specific types and prevent INT64 propagation
+    class RemoveCast(rewriter.RewriteRuleClassBase):
+        """Replace Cast with Identity to let optimizer handle types."""
+        def pattern(self, op, x):
+            return op.Cast(x)
+        def rewrite(self, op, x: ir.Value, **kwargs):
+            return op.Identity(x)
+
+    try:
+        rule_set = pattern.RewriteRuleSet([RemoveCast.rule()])
+        count = rewriter.rewrite(ir_model, rule_set)
+        print(f"  RemoveCast rule applied ({count} patterns)")
+    except Exception as e:
+        print(f"  RemoveCast rule failed: {e}")
+
+    # Step 2: Convert INT32 initializers to INT64
+    converted = 0
+    initializers = list(ir_model.graph.initializers.values())
+
+    for initializer in initializers:
+        if initializer.dtype == ir.DataType.INT32:
+            int32_array = initializer.const_value.numpy()
+            int64_array = int32_array.astype(np.int64)
+
+            # Create new INT64 initializer using ir.val() helper
+            new_initializer = ir.val(initializer.name, const_value=ir.tensor(int64_array))
+
+            # Replace in initializers dict
+            ir_model.graph.initializers.pop(initializer.name)
+            ir_model.graph.initializers.add(new_initializer)
+
+            # Update all uses with proper type propagation
+            initializer.replace_all_uses_with(new_initializer)
+            converted += 1
+
+    # Step 3: Run optimizer to propagate types and remove Identity nodes
+    if converted > 0:
+        try:
+            onnxscript.optimizer.optimize(
+                ir_model,
+                input_size_limit=1024 * 1024 * 1024,
+                output_size_limit=1024 * 1024 * 1024
+            )
+            print(f"  Type inference updated via onnxscript optimizer")
+        except Exception as e:
+            print(f"  Warning: onnxscript optimizer failed during INT32->INT64: {e}")
+
+    # Convert back to proto
+    model = ir.to_proto(ir_model)
+
+    return model, converted
 
 
 def rename_io(model: onnx.ModelProto) -> onnx.ModelProto:
