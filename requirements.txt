@@ -1,0 +1,15 @@
+# Core dependencies
+onnx>=1.14.0
+numpy>=1.21.0
+onnxruntime>=1.16.0
+
+# Optimization tools
+onnx-simplifier>=0.4.0
+onnxslim>=0.1.0
+
+# FP16 conversion
+onnxconverter-common>=1.13.0
+
+# TFLite conversion (optional)
+# tensorflow>=2.13.0
+# tf2onnx>=1.14.0
