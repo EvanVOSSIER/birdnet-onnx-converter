@@ -129,9 +129,10 @@ def convert_to_onnx(model, output_path: str, opset: int = 13) -> str:
 def convert_tflite_to_onnx(tflite_path: str, output_path: str, opset: int = 17) -> str:
     """Convert TFLite model to ONNX format using tf2onnx CLI."""
     import subprocess
+    import sys
 
     cmd = [
-        "python3", "-m", "tf2onnx.convert",
+        sys.executable, "-m", "tf2onnx.convert",
         "--tflite", tflite_path,
         "--output", output_path,
         "--opset", str(opset),
