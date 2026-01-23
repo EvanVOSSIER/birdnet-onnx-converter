@@ -610,6 +610,23 @@ def set_dynamic_batch(model: onnx.ModelProto) -> onnx.ModelProto:
     return model
 
 
+def convert_int32_to_int64(model: onnx.ModelProto) -> Tuple[onnx.ModelProto, int]:
+    """Convert INT32 initializers to INT64 for better compatibility.
+
+    NOTE: This conversion is currently DISABLED because it requires proper
+    type inference to avoid creating type mismatches. The reference implementation
+    uses onnx_ir which handles type propagation properly.
+
+    When enabled, this would convert INT32 initializers used by shape-related
+    ops (Reshape, Slice, Gather, etc.) to INT64 for better runtime compatibility.
+
+    Based on: https://huggingface.co/justinchuby/BirdNET-onnx/blob/main/scripts/optimize.py
+    """
+    # DISABLED: Causes type mismatches without proper type inference
+    # TODO: Re-enable when we have onnx_ir or implement proper type propagation
+    return model, 0
+
+
 def rename_io(model: onnx.ModelProto) -> onnx.ModelProto:
     """Rename input/output to standard names."""
     if model.graph.input:
@@ -690,6 +707,127 @@ def optimize_with_onnxscript(model: onnx.ModelProto, remove_casts: bool = True) 
     except Exception as e:
         print(f"  onnxscript optimizer failed: {e}")
     return model
+
+
+def remove_dead_code(model: onnx.ModelProto) -> Tuple[onnx.ModelProto, int]:
+    """Remove nodes whose outputs are not consumed by any other node or graph output.
+
+    Iteratively removes dead nodes until no more can be removed, handling
+    chains of dead code (e.g., Shape -> Gather -> Expand -> orphaned).
+    """
+    total_removed = 0
+
+    while True:
+        # Build set of consumed outputs
+        consumed = set()
+        for node in model.graph.node:
+            for inp in node.input:
+                consumed.add(inp)
+        for out in model.graph.output:
+            consumed.add(out.name)
+
+        # Find nodes with all outputs unconsumed
+        nodes_to_remove = []
+        for node in model.graph.node:
+            if not node.output:
+                continue
+            all_dead = all(out not in consumed for out in node.output)
+            if all_dead:
+                nodes_to_remove.append(node)
+
+        if not nodes_to_remove:
+            break
+
+        for node in nodes_to_remove:
+            print(f"  Removing dead node: {node.name} ({node.op_type})")
+            model.graph.node.remove(node)
+            total_removed += 1
+
+    # Also remove orphaned initializers
+    consumed_initializers = set()
+    for node in model.graph.node:
+        for inp in node.input:
+            consumed_initializers.add(inp)
+
+    init_to_remove = []
+    for init in model.graph.initializer:
+        if init.name not in consumed_initializers:
+            init_to_remove.append(init)
+
+    for init in init_to_remove:
+        model.graph.initializer.remove(init)
+
+    if init_to_remove:
+        print(f"  Removed {len(init_to_remove)} orphaned initializers")
+
+    return model, total_removed
+
+
+def fix_split_nodes(model: onnx.ModelProto) -> Tuple[onnx.ModelProto, int]:
+    """Fix Split nodes with zero-size outputs.
+
+    When a Split node has a split tensor with zero values (e.g., [1, 1, 0]),
+    the corresponding outputs are empty and usually unused. This causes
+    NVIDIA tools to report "mismatch between splits and outputs".
+
+    Fix: Remove zero-size outputs and update the split tensor.
+    """
+    fixes = 0
+
+    # Build initializer lookup
+    initializers = {init.name: init for init in model.graph.initializer}
+
+    for node in model.graph.node:
+        if node.op_type != 'Split':
+            continue
+
+        # Check if this Split has a split sizes input (opset 13+)
+        if len(node.input) < 2:
+            continue
+
+        split_input_name = node.input[1]
+        if split_input_name not in initializers:
+            continue
+
+        split_init = initializers[split_input_name]
+        split_sizes = numpy_helper.to_array(split_init)
+
+        # Find indices with zero size
+        zero_indices = [i for i, size in enumerate(split_sizes) if size == 0]
+
+        if not zero_indices:
+            continue
+
+        print(f"  Split {node.name}: found {len(zero_indices)} zero-size outputs")
+        print(f"    Original split sizes: {list(split_sizes)}")
+
+        # Remove zero-size outputs from the node
+        outputs_to_keep = []
+        new_split_sizes = []
+        for i, (out, size) in enumerate(zip(node.output, split_sizes)):
+            if size > 0:
+                outputs_to_keep.append(out)
+                new_split_sizes.append(size)
+            else:
+                print(f"    Removing empty output: {out}")
+
+        # Update the node outputs
+        del node.output[:]
+        node.output.extend(outputs_to_keep)
+
+        # Update the split sizes initializer
+        new_split_array = np.array(new_split_sizes, dtype=split_sizes.dtype)
+        new_init = numpy_helper.from_array(new_split_array, split_input_name)
+
+        # Replace the initializer
+        model.graph.initializer.remove(split_init)
+        model.graph.initializer.append(new_init)
+
+        print(f"    New split sizes: {list(new_split_array)}")
+        print(f"    Outputs: {len(list(split_sizes))} -> {len(outputs_to_keep)}")
+        fixes += 1
+
+    return model, fixes
 
 
 def count_ops(model: onnx.ModelProto) -> Dict[str, int]:
@@ -796,53 +934,68 @@ def optimize_model(input_path: str) -> Optional[onnx.ModelProto]:
     print(f"  Transpose: {initial_ops.get('Transpose', 0)}")
 
     # Step 1: Replace DFT with MatMul
-    print("\n[1/10] Replacing DFT with MatMul...")
+    print("\n[1/13] Replacing DFT with MatMul...")
     model, dft_replaced = replace_dft_with_matmul(model)
     print(f"  Replaced: {dft_replaced}")
 
     # Step 2: Replace RFFT2D with MatMul
-    print("\n[2/10] Replacing RFFT2D with MatMul...")
+    print("\n[2/13] Replacing RFFT2D with MatMul...")
     model, rfft_replaced = replace_rfft2d_with_matmul(model)
     print(f"  Replaced: {rfft_replaced}")
 
     # Step 3: Replace ReverseSequence with Slice
-    print("\n[3/10] Replacing ReverseSequence with Slice...")
+    print("\n[3/13] Replacing ReverseSequence with Slice...")
     model, rev_replaced = replace_reverse_sequence(model)
     print(f"  Replaced: {rev_replaced}")
 
     # Step 4: Replace GlobalAveragePool + Squeeze with ReduceMean
-    print("\n[4/10] Replacing GlobalAveragePool+Squeeze with ReduceMean...")
+    print("\n[4/13] Replacing GlobalAveragePool+Squeeze with ReduceMean...")
     model, gap_replaced = replace_globalavgpool_squeeze_with_reducemean(model)
     print(f"  Replaced: {gap_replaced}")
 
     # Step 5: Remove identity casts
-    print("\n[5/10] Removing identity Cast operations...")
+    print("\n[5/13] Removing identity Cast operations...")
     model, cast_removed = remove_identity_casts(model)
     print(f"  Removed: {cast_removed}")
 
     # Step 6: Fuse transpose patterns
-    print("\n[6/10] Fusing Transpose patterns...")
+    print("\n[6/13] Fusing Transpose patterns...")
     model, transpose_fused = fuse_transpose_patterns(model)
     print(f"  Fused: {transpose_fused}")
 
     # Step 7: Remove redundant reshapes
-    print("\n[7/10] Removing redundant Reshapes...")
+    print("\n[7/13] Removing redundant Reshapes...")
     model, reshape_removed = remove_redundant_reshapes(model)
     print(f"  Removed: {reshape_removed}")
 
-    # Step 8: Run external optimizers
-    print("\n[8/10] Running graph optimizers...")
+    # Step 8: Convert INT32 to INT64 for compatibility
+    print("\n[8/13] Converting INT32 initializers to INT64...")
+    model, int32_converted = convert_int32_to_int64(model)
+    print(f"  Converted: {int32_converted}")
+
+    # Step 9: Run external optimizers
+    print("\n[9/13] Running graph optimizers...")
     model = optimize_with_simplifier(model)
     model = optimize_with_onnxscript(model, remove_casts=False)
     model = optimize_with_onnxslim(model)
 
-    # Step 9: Set dynamic batch
-    print("\n[9/10] Setting dynamic batch size...")
+    # Step 10: Remove dead code (orphaned nodes from replacements)
+    print("\n[10/13] Removing dead code...")
+    model, dead_removed = remove_dead_code(model)
+    print(f"  Removed: {dead_removed} dead nodes")
+
+    # Step 11: Fix Split nodes (remove zero-size outputs)
+    print("\n[11/13] Fixing Split nodes...")
+    model, split_fixed = fix_split_nodes(model)
+    print(f"  Fixed: {split_fixed}")
+
+    # Step 12: Set dynamic batch
+    print("\n[12/13] Setting dynamic batch size...")
     model = set_dynamic_batch(model)
     print("  Done")
 
-    # Step 10: Finalize
-    print("\n[10/10] Finalizing model...")
+    # Step 13: Finalize
+    print("\n[13/13] Finalizing model...")
     model = rename_io(model)
     model.ir_version = 9
     model.producer_name = "birdnet-onnx-optimizer"
