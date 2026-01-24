@@ -9,8 +9,6 @@ Convert and optimize BirdNET models for ONNX Runtime inference on various platfo
 - **Multiple precision formats**:
   - FP32 - Standard precision for GPU/desktop
   - FP16 - Half precision for devices with FP16 support (RPi 5, modern GPUs)
-  - INT8 - Quantized for maximum performance on CPU
-  - INT8-ARM - ARM-compatible quantization (avoids ConvInteger)
 
 ## Installation
 
@@ -36,24 +34,19 @@ python convert.py --input BirdNET_Model.tflite --output-dir ./ --onnx-only
 ### Step 2: Optimize ONNX Model
 
 ```bash
-# Output all formats (FP32, FP16, INT8)
+# Output all formats (FP32, FP16)
 python optimize.py --input BirdNET_Model.onnx --output BirdNET
 
 # Output only FP32
 python optimize.py --input BirdNET_Model.onnx --output BirdNET --fp32-only
-
-# Include ARM-compatible INT8
-python optimize.py --input BirdNET_Model.onnx --output BirdNET --int8-arm
 ```
 
 ### Output Files
 
 | File | Description | Recommended Use |
-|------|-------------|-----------------|
+| ---- | ----------- | --------------- |
 | `*_fp32.onnx` | Full precision | GPU (CUDA/TensorRT), Desktop CPU |
 | `*_fp16.onnx` | Half precision | RPi 5, Modern GPUs |
-| `*_int8.onnx` | INT8 quantized | Intel CPUs |
-| `*_int8_arm.onnx` | ARM-compatible INT8 | Raspberry Pi, ARM devices |
 
 ## Key Optimizations
 
@@ -90,18 +83,10 @@ session = ort.InferenceSession("BirdNET_fp16.onnx")
 
 ### Raspberry Pi 3/4
 
-Use INT8-ARM model (FP16 not supported):
+Use FP32 model (FP16 not natively supported):
 
 ```python
-session = ort.InferenceSession("BirdNET_int8_arm.onnx")
-```
-
-### Intel CPUs
-
-Use INT8 model for ~2x speedup with oneDNN:
-
-```python
-session = ort.InferenceSession("BirdNET_int8.onnx")
+session = ort.InferenceSession("BirdNET_fp32.onnx")
 ```
 
 ### NVIDIA GPUs
