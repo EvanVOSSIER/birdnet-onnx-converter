@@ -12,7 +12,24 @@ Convert and optimize BirdNET models for ONNX Runtime inference on various platfo
 
 ## Installation
 
+### Quick Setup (Recommended)
+
+Use the setup script to create an isolated virtual environment:
+
 ```bash
+./setup.sh
+source .venv/bin/activate
+```
+
+### Manual Installation
+
+If you prefer to manage dependencies yourself:
+
+```bash
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
 # Core dependencies
 pip install onnx onnxslim onnxscript numpy onnxruntime onnxconverter-common
 
@@ -20,7 +37,7 @@ pip install onnx onnxslim onnxscript numpy onnxruntime onnxconverter-common
 pip install tensorflow tf2onnx
 
 # Optional: onnx-simplifier (requires cmake)
-# pip install onnx-simplifier
+pip install onnx-simplifier
 ```
 
 ## Usage
